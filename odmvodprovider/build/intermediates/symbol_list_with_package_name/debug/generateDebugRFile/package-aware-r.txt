@@ -1,9 +1,0 @@
-com.myplugin.vod
-drawable outline
-drawable save_icon
-id radio_button
-id save
-id server_group
-id text1
-layout bottom_sheet_layout
-layout radio_button

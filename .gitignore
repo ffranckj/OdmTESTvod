@@ -1,0 +1,10 @@
+# Ignora tutto di default nel branch builds
+*
+.*
+
+# Ma NON ignorare questi
+!plugins.json
+!repo.json
+!*.cs3
+# !*.jar
+!.gitignore
