@@ -2,20 +2,21 @@
   {
     "internalName": "OdmVodProvider",
     "name": "Odm VOD",
-    "version": 1,
-    "apiVersion": 18,
+    "version": 2,
+    "apiVersion": 1,
     "description": "Guarda film e serie da Odm Vod.",
     "url": "https://raw.githubusercontent.com/ffranckj/OdmTESTvod/builds/odmvodprovider.cs3",
-    "fileSize": 0,
+    "fileSize": 2686,
     "authors": [
       "io"
     ],
     "tvTypes": [
       "Movie",
-      "TvSeries" 
+      "TvSeries"
     ],
     "language": "it",
     "iconUrl": "https://i.ibb.co/L9V2vSN/movie-icon-popcorn.png",
+    "status": 1,
     "repositoryUrl": "https://github.com/ffranckj/OdmTESTvod"
   }
 ]
