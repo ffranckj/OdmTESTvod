@@ -2,21 +2,20 @@
   {
     "internalName": "OdmVodProvider",
     "name": "Odm VOD",
-    "version": 1, // Inizia con una versione intera, incrementala per gli aggiornamenti
-    "apiVersion": 18, // Assicurati che questo sia compatibile con la versione di CloudStream che stai targettando e le API che usi
+    "version": 1,
+    "apiVersion": 18,
     "description": "Guarda film e serie da Odm Vod.",
-    "url": "https://raw.githubusercontent.com/ffranckj/OdmTESTvod/builds/odmvodprovider.cs3", // URL diretto al file .cs3
-    "fileSize": 0, // Questo verrà aggiornato automaticamente dal workflow se usi il task makePluginsJson corretto, altrimenti puoi mettere un valore approssimativo o 0
+    "url": "https://raw.githubusercontent.com/ffranckj/OdmTESTvod/builds/odmvodprovider.cs3",
+    "fileSize": 0,
     "authors": [
-      "io" // Metti il tuo nome o nickname
+      "io"
     ],
-    "tvTypes": [ // Tipi di contenuto supportati
+    "tvTypes": [
       "Movie",
       "TvSeries" 
     ],
-    "language": "it", // Lingua principale del provider
-    "iconUrl": "https://i.ibb.co/L9V2vSN/movie-icon-popcorn.png", // URL di un'icona generica
-    "status": 1, // 1 per funzionante, 2 per Beta, 3 per Lento/Problemi, 4 per Rotto
-    "repositoryUrl": "https://github.com/ffranckj/OdmTESTvod" // URL del tuo repository
+    "language": "it",
+    "iconUrl": "https://i.ibb.co/L9V2vSN/movie-icon-popcorn.png",
+    "repositoryUrl": "https://github.com/ffranckj/OdmTESTvod"
   }
 ]
