@@ -1,9 +1,9 @@
 {
-    "name": "Phisher Repo",
-    "iconUrl": "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/Icons/RepoIcon.png",
-    "description": "Phisher Repository",
+    "name": "OdmTESTvod Repo",
+    "iconUrl": "https://i.ibb.co/L9V2vSN/movie-icon-popcorn.png",
+    "description": "Repository per i plugin OdmTESTvod per CloudStream",
     "manifestVersion": 1,
     "pluginLists": [
-      "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/plugins.json"
+        "https://raw.githubusercontent.com/ffranckj/OdmTESTvod/builds/plugins.json"
     ]
 }
