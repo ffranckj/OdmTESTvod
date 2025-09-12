@@ -1,8 +1,0 @@
-{
-    "name": "CXXX",
-    "description": "CXX Repository",
-    "manifestVersion": 1,
-    "pluginLists": [
-      "https://raw.githubusercontent.com/Freitez93/CS3xxx-Ext/builds/plugins.json"
-    ]
-  }
