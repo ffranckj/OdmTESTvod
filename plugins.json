@@ -1,22 +1,21 @@
 [
-  {
-    "internalName": "OdmVodProvider",
-    "name": "Odm VOD",
-    "version": 2,
-    "apiVersion": 1,
-    "description": "Guarda film e serie da Odm Vod.",
-    "url": "https://raw.githubusercontent.com/ffranckj/OdmTESTvod/builds/odmvodprovider.cs3",
-    "fileSize": 2686,
-    "authors": [
-      "io"
-    ],
-    "tvTypes": [
-      "Movie",
-      "TvSeries"
-    ],
-    "language": "it",
-    "iconUrl": "https://i.ibb.co/L9V2vSN/movie-icon-popcorn.png",
-    "status": 1,
-    "repositoryUrl": "https://github.com/ffranckj/OdmTESTvod"
-  }
+    {
+        "fileHash": "sha256-30ec747ca730014e626020f490bf2324e4eb09df096f2f1a843963af13eda440",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/ffranckj/OdmTESTvod",
+        "fileSize": 18720,
+        "status": 1,
+        "language": "it",
+        "authors": [
+            "melan"
+        ],
+        "tvTypes": [
+            "Movie"
+        ],
+        "version": -1,
+        "internalName": "odmvodprovider",
+        "description": "Bundle: Archivio Cinema Italiano (Telegram) + OdmVod",
+        "url": "https://raw.githubusercontent.com/ffranckj/OdmTESTvod/builds/odmvodprovider.cs3",
+        "name": "odmvodprovider"
+    }
 ]
