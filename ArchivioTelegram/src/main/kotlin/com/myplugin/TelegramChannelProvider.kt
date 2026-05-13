@@ -30,7 +30,7 @@ class TelegramChannelProvider : MainAPI() {
     private val defaultCover = "https://placehold.co/500x750/222222/FFFFFF/png?text=Archivio+Cinema+Italiano"
     
     // URL Primario del file Raw
-    private val databaseUrl = "https://gist.githubusercontent.com/ffranckj/d73933a36991f0ff223efa048937fdf1/raw/9ef3a9cd7a0c90ee579e23dad276a204bb18a9ce/gistfile2.txt"
+    private val databaseUrl = "https://gist.githubusercontent.com/ffranckj/d73933a36991f0ff223efa048937fdf1/raw/10524fce3b454e10782bb960ace377ab60de8dd5/catalogo.json"
     
     // URL di Fallback punta all'interfaccia Gist grezza nel caso il link raw dia 404
     private val fallbackUrl = "https://gist.github.com/ffranckj/d73933a36991f0ff223efa048937fdf1"
