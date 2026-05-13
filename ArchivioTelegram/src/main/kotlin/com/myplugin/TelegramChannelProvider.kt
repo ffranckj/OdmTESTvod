@@ -1,4 +1,4 @@
-package com.telegram.vod // Usa il package allineato al tuo sorgente
+package com.telegram.vod // Mantieni il package originale del tuo progetto
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
@@ -16,7 +16,7 @@ class TelegramChannelProvider : MainAPI() {
     override var lang = "it"
     override val hasMainPage = true
 
-    // Autenticazione nativa e pulita tramite Header HTTP
+    // Autenticazione sicura iniettata via BuildConfig tramite Header HTTP
     private val tmdbApiKey = BuildConfig.TMDB_API
     private val authHeaders = mapOf("Authorization" to "Bearer $tmdbApiKey")
 
@@ -24,6 +24,7 @@ class TelegramChannelProvider : MainAPI() {
     private var linkDatabase: Map<String, String>? = null
     private val defaultCover = "https://placehold.co/500x750/222222/FFFFFF/png?text=Locandina+Non+Disponibile"
 
+    // Modelli dati per deserializzare in sicurezza le risposte di TMDB
     private data class TmdbSearchResp(@JsonProperty("results") val results: List<TmdbMovie>?)
     private data class TmdbMovie(
         @JsonProperty("id") val id: Int?,
@@ -31,6 +32,7 @@ class TelegramChannelProvider : MainAPI() {
         @JsonProperty("backdrop_path") val backdropPath: String?
     )
 
+    // Struttura dati ponte per passare i dettagli del video alla schermata di caricamento
     private data class TelegramTarget(val streamUrl: String, val poster: String, val banner: String)
 
     private fun getImageUrl(path: String?, isBanner: Boolean = false): String {
@@ -54,6 +56,7 @@ class TelegramChannelProvider : MainAPI() {
     private suspend fun fetchTmdbGraphics(title: String): Pair<String, String> {
         if (tmdbApiKey.isBlank()) return Pair(defaultCover, defaultCover)
         return try {
+            // Pulizia del titolo per ottimizzare l'accuratezza dei risultati TMDB
             val cleanTitle = title.replace(Regex("(?i)(film|streaming|ita|hd|sub|download|\\[.*?\\]|\\(.*?\\)|\\d{4})"), "").trim()
             if (cleanTitle.isEmpty()) return Pair(defaultCover, defaultCover)
 
@@ -88,6 +91,8 @@ class TelegramChannelProvider : MainAPI() {
             if (streamLink != null) {
                 val rawTitle = textNode.text().substringBefore("\n").trim()
                 val (poster, banner) = fetchTmdbGraphics(rawTitle)
+
+                // Serializzazione nativa dei dati di navigazione
                 val targetData = TelegramTarget(streamLink, poster, banner).toJson()
 
                 movies.add(newMovieSearchResponse(rawTitle, targetData, TvType.Movie) {
@@ -139,15 +144,13 @@ class TelegramChannelProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // Implementazione nativa e testata di newExtractorLink
+        // RISOLTO: Utilizzo della firma standard e nativa di newExtractorLink
         callback.invoke(
             newExtractorLink(
-                source = this.name,
-                name = "Streaming Diretto HD",
-                url = data,
-                type = ExtractorLinkType.VIDEO,
-                quality = Qualities.P1080.value,
-                headers = mapOf("Referer" to "https://t.me/")
+                this.name,
+                "Streaming Diretto HD",
+                data,
+                ExtractorLinkType.VIDEO
             )
         )
         return true
