@@ -1,4 +1,4 @@
-package com.telegram.vod // Mantieni il package originale del tuo modulo
+package com.telegram.vod // Mantieni il package originale del tuo progetto
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
@@ -144,7 +144,8 @@ class TelegramChannelProvider : MainAPI() {
 
             // Aggiungiamo alla lista se ha un punteggio di rilevanza valido o se è mappato nel DB
             if (score > 0 || streamLink != null) {
-                val finalScore = se (score > 0) score else 10 // Voto base se trovato via ID DB ma senza match titolo
+                // CORRETTO: Sostituito 'se' con 'if'
+                val finalScore = if (score > 0) score else 10 
                 val finalPoster = currentBannerImg ?: defaultCover
                 val resolvedStream = streamLink ?: baseHref
                 
