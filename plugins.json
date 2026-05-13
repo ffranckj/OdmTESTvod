@@ -1,9 +1,28 @@
 [
     {
-        "fileHash": "sha256-c8e25f28e329932805e7f5581e4285cfb7e3e09f35e9302c0987d873017300f8",
+        "fileHash": "sha256-92e40925f556fa9fb5a06f56b3650b55814ce05d4b0880b426e489747e0f241a",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/ffranckj/OdmTESTvod",
-        "fileSize": 20837,
+        "fileSize": 14113,
+        "status": 1,
+        "language": "it",
+        "authors": [
+            "melan"
+        ],
+        "tvTypes": [
+            "Movie"
+        ],
+        "version": -1,
+        "internalName": "odmvodprovide",
+        "description": "Bundle: Archivio Cinema Italiano (Telegram) + OdmVod",
+        "url": "https://raw.githubusercontent.com/ffranckj/OdmTESTvod/builds/odmvodprovide.cs3",
+        "name": "odmvodprovide"
+    },
+    {
+        "fileHash": "sha256-4726514154ec98848c89ffcd5553bb712ca34aa7e5828bb3ca5738bf11be4c32",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/ffranckj/OdmTESTvod",
+        "fileSize": 11416,
         "status": 1,
         "language": "it",
         "authors": [
@@ -14,7 +33,7 @@
         ],
         "version": -1,
         "internalName": "odmvodprovider",
-        "description": "Bundle: Archivio Cinema Italiano (Telegram) + OdmVod",
+        "description": "Archivio Storico del Cinema Italiano in alta definizione",
         "url": "https://raw.githubusercontent.com/ffranckj/OdmTESTvod/builds/odmvodprovider.cs3",
         "name": "odmvodprovider"
     }
