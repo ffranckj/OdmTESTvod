@@ -12,13 +12,12 @@ class TelegramChannelProvider : MainAPI() {
     override var lang = "it"
     override val hasMainPage = true
 
-    // Securely pull the TMDB key injected via local.properties -> BuildConfig
     private val tmdbApiKey = BuildConfig.TMDB_API 
 
-    private val databaseUrl = "https://gist.githubusercontent.com/ffranckj/d73933a36991f0ff223efa048937fdf1/raw/catalogo.json"
+    // RIPRISTINATO IL LINK GIST ORIGINALE FUNZIONANTE AL 100%
+    private val databaseUrl = "https://gist.githubusercontent.com/ffranckj/d73933a36991f0ff223efa048937fdf1/raw/0cfb5ddca521179de3ba7e859e3099d81b6488d2/catalogo.json"
     private var linkDatabase: Map<String, String>? = null
     
-    // FIXED: Using a reliable, active placeholder URL to prevent Coil HTTP 404 crashes
     private val defaultCover = "https://placehold.co/500x750/222222/FFFFFF/png?text=Locandina+Non+Disponibile"
 
     private data class TmdbArt(val poster: String, val background: String)
@@ -28,7 +27,6 @@ class TelegramChannelProvider : MainAPI() {
             try {
                 val jsonText = app.get(databaseUrl).text
                 val rawMap = AppUtils.parseJson<Map<String, String>>(jsonText)
-                // Ensure absolute cleanliness of dictionary keys
                 linkDatabase = rawMap.mapKeys { it.key.trim() }
             } catch (e: Exception) {
                 linkDatabase = emptyMap()
@@ -41,8 +39,9 @@ class TelegramChannelProvider : MainAPI() {
         if (tmdbApiKey.isBlank()) return TmdbArt(defaultCover, defaultCover)
 
         return try {
-            // Strip out common upload tags so TMDB's search engine understands the raw title string
-            val cleanTitle = title.replace(Regex("(?i)(film|streaming|ita|hd|sub|download|\\[.*?\\]|\\(.*?\\))"), "").trim()
+            val cleanTitle = title.replace(Regex("(?i)(film|streaming|ita|hd|sub|download|\\[.*?\\]|\\(.*?\\)|\\d{4})"), "").trim()
+            if (cleanTitle.isEmpty()) return TmdbArt(defaultCover, defaultCover)
+
             val query = URLEncoder.encode(cleanTitle, "UTF-8")
             val url = "https://api.themoviedb.org/3/search/movie?api_key=$tmdbApiKey&query=$query&language=it-IT"
             
@@ -50,7 +49,6 @@ class TelegramChannelProvider : MainAPI() {
             val json = AppUtils.parseJson<TmdbSearchResponse>(response)
             val firstResult = json.results?.firstOrNull()
             
-            // Build absolute image paths only if TMDB returns valid partial paths
             val poster = firstResult?.poster_path?.let { "https://image.tmdb.org/t/p/w500$it" } ?: defaultCover
             val banner = firstResult?.backdrop_path?.let { "https://image.tmdb.org/t/p/w1280$it" } ?: poster
             
@@ -75,7 +73,7 @@ class TelegramChannelProvider : MainAPI() {
             val baseHref = node.selectFirst(".tgme_widget_message_date")?.attr("href") ?: continue
             val postId = extractPostId(baseHref)
             
-            // Only populate Home if the specific Post ID exists inside catalogo.json
+            // FILTRO RIGIDO: Mostra in Home SOLO i film mappati nel catalogo.json
             if (db.containsKey(postId)) {
                 val rawTitle = textNode.text().substringBefore("\n").trim()
                 val art = fetchTmdbArt(rawTitle)
@@ -89,6 +87,7 @@ class TelegramChannelProvider : MainAPI() {
                 })
             }
         }
+        
         if (movies.isEmpty()) return null
         return newHomePageResponse("Archivio Cinema", movies.reversed())
     }
@@ -107,7 +106,7 @@ class TelegramChannelProvider : MainAPI() {
             val baseHref = node.selectFirst(".tgme_widget_message_date")?.attr("href") ?: continue
             val postId = extractPostId(baseHref)
 
-            // Strict Validation: Item must exist in DB to guarantee a working stream link
+            // FILTRO RIGIDO: Cerca solo tra i film mappati nel catalogo.json
             if (db.containsKey(postId)) {
                 val rawTitle = textNode.text().substringBefore("\n").trim()
                 
@@ -127,7 +126,6 @@ class TelegramChannelProvider : MainAPI() {
     override suspend fun load(url: String): LoadResponse? {
         val cleanUrl = url.substringBefore("?")
         
-        // FIXED: URLDecoder safely unpacks the string so Coil receives a clean HTTP target
         val posterParam = if (url.contains("poster=")) {
             URLDecoder.decode(url.substringAfter("poster=").substringBefore("&"), "UTF-8")
         } else defaultCover
@@ -161,7 +159,7 @@ class TelegramChannelProvider : MainAPI() {
         callback.invoke(
             ExtractorLink(
                 source = this.name,
-                name = "Streaming Diretto",
+                name = "Streaming HD",
                 url = finalUrl,
                 referer = "https://t.me/",
                 quality = Qualities.P1080.value,
