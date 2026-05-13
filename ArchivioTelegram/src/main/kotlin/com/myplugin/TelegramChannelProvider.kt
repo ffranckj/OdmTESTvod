@@ -214,9 +214,8 @@ class TelegramChannelProvider : MainAPI() {
         val streamUrl = db[target.postId] ?: db.entries.firstOrNull { it.key.contains(target.postId) }?.value
 
         // BLOCCO SICUREZZA: Se il film non è mappato o punta ancora a una pagina web generica,
-        // avvisiamo l'utente ed evitiamo di attivare il player per prevenire crash applicativi.
+        // ritorniamo false in modo sicuro. L'app gestirà autonomamente il blocco impedendo crash del player.
         if (streamUrl.isNullOrBlank() || streamUrl.contains("t.me/")) {
-            app.showToast("Video streaming non ancora mappato nel catalogo per l'ID #${target.postId}")
             return false
         }
 
