@@ -1,0 +1,123 @@
+name: Build OdmVodProvider Plugin
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - master
+      - main
+    paths-ignore:
+      - '*.md'
+      - '.gitignore'
+      - 'LICENSE'
+  workflow_dispatch:
+
+jobs:
+  build_plugin:
+    name: Build OdmVodProvider
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          path: src
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Cache Gradle Packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('src/**/gradle-wrapper.properties', 'src/**/*.gradle*', 'src/gradle.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # PASSAGGIO CRITICO AGGIUNTO: Creazione di local.properties per iniettare il Secret in sicurezza
+      - name: Inject API Keys into local.properties
+        working-directory: ${{ github.workspace }}/src
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API }}
+        run: |
+          echo "Creazione del file local.properties per la build..."
+          echo "TMDB_API=\"$TMDB_API_KEY\"" > local.properties
+
+      - name: Build Plugin (OdmVodProvider)
+        working-directory: ${{ github.workspace }}/src
+        run: |
+          chmod +x gradlew
+          echo "Avvio build Gradle per :odmvodprovider:make, makePluginsJson..."
+          ./gradlew clean :odmvodprovider:make makePluginsJson ensureJarCompatibility --no-daemon --scan
+          
+          echo "Contenuto di src/odmvodprovider/build/ dopo il build:"
+          ls -la ${{ github.workspace }}/src/odmvodprovider/build/
+          echo "Contenuto di src/build/ (per plugins.json) dopo il build:"
+          ls -la ${{ github.workspace }}/src/build/
+
+      - name: Prepare Artifacts for Upload
+        run: |
+          ARTIFACTS_UPLOAD_DIR="${{ github.workspace }}/artifacts-to-upload"
+          mkdir -p "$ARTIFACTS_UPLOAD_DIR"
+          
+          CS3_SOURCE_PATH="${{ github.workspace }}/src/odmvodprovider/build/odmvodprovider.cs3" 
+          PLUGINS_JSON_SOURCE_PATH="${{ github.workspace }}/src/build/plugins.json"
+
+          echo "Verifica e copia di odmvodprovider.cs3 da $CS3_SOURCE_PATH"
+          if [ -f "$CS3_SOURCE_PATH" ]; then
+            cp "$CS3_SOURCE_PATH" "$ARTIFACTS_UPLOAD_DIR/odmvodprovider.cs3" 
+            echo "odmvodprovider.cs3 copiato."
+          else
+            echo "ERRORE: odmvodprovider.cs3 non trovato in $CS3_SOURCE_PATH!"
+            exit 1
+          fi
+          
+          echo "Verifica e copia di plugins.json da $PLUGINS_JSON_SOURCE_PATH"
+          if [ -f "$PLUGINS_JSON_SOURCE_PATH" ]; then
+            cp "$PLUGINS_JSON_SOURCE_PATH" "$ARTIFACTS_UPLOAD_DIR/"
+            echo "plugins.json copiato."
+          else
+            echo "ERRORE: plugins.json non trovato in $PLUGINS_JSON_SOURCE_PATH!"
+            exit 1 
+          fi
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: odmvodprovider-build-artifacts
+          path: ${{ github.workspace }}/artifacts-to-upload
+          if-no-files-found: error
+
+  publish_to_builds_branch:
+    name: Publish to 'builds' Branch
+    needs: build_plugin
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+
+    steps:
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: odmvodprovider-build-artifacts
+          path: ${{ github.workspace }}/artifacts-to-deploy
+
+      - name: Push to builds branch
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ${{ github.workspace }}/artifacts-to-deploy
+          publish_branch: builds
+          force_orphan: false
+          keep_files: true
+          commit_message: "Auto-update plugin build [skip ci]"
