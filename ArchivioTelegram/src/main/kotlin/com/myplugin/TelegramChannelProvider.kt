@@ -1,4 +1,4 @@
-package com.telegram.vod
+package com.telegram.vod // Usa il package corretto del tuo progetto
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
@@ -98,4 +98,56 @@ class TelegramChannelProvider : MainAPI() {
         return newHomePageResponse("Archivio Cinema", movies.reversed())
     }
 
-    override suspend fun search(query: String): List<SearchResponse>
+    override suspend fun search(query: String): List<SearchResponse> {
+        val db = getDatabase()
+        val searchResults = mutableListOf<SearchResponse>()
+        val encodedQuery = URLEncoder.encode(query, "UTF-8")
+        val document = app.get("https://t.me/s/archiviocinemaitaliano?q=$encodedQuery").document
+        
+        for (node in document.select(".tgme_widget_message")) {
+            val textNode = node.selectFirst(".tgme_widget_message_text") ?: continue
+            val baseHref = node.selectFirst(".tgme_widget_message_date")?.attr("href") ?: continue
+            val streamLink = db[extractPostId(baseHref)]
+
+            if (streamLink != null) {
+                val rawTitle = textNode.text().substringBefore("\n").trim()
+                val (poster, banner) = fetchTmdbGraphics(rawTitle)
+                val targetData = TelegramTarget(streamLink, poster, banner).toJson()
+
+                searchResults.add(newMovieSearchResponse(rawTitle, targetData, TvType.Movie) {
+                    this.posterUrl = poster
+                })
+            }
+        }
+        return searchResults
+    }
+
+    override suspend fun load(url: String): LoadResponse? {
+        val target = tryParseJson<TelegramTarget>(url) ?: return null
+        
+        return newMovieLoadResponse("Film in Riproduzione", url, TvType.Movie, target.streamUrl) {
+            this.posterUrl = target.poster
+            this.backgroundPosterUrl = target.banner
+            this.plot = "Streaming HD autorizzato dal database locale."
+        }
+    }
+
+    override suspend fun loadLinks(
+        data: String,
+        isCasting: Boolean,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        callback.invoke(
+            newExtractorLink(
+                source = this.name,
+                name = "Streaming Diretto HD",
+                url = data,
+                type = ExtractorLinkType.VIDEO,
+                quality = Qualities.P1080.value,
+                headers = mapOf("Referer" to "https://t.me/")
+            )
+        )
+        return true
+    }
+}
