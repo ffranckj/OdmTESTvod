@@ -138,14 +138,15 @@ class TelegramChannelProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        // Costruzione diretta compatibile con l'ultima estensione Cloudstream
         callback.invoke(
-            newExtractorLink(
-                source = this.name,
-                name = "Streaming Diretto HD",
-                url = data,
-                type = ExtractorLinkType.VIDEO,
-                quality = Qualities.P1080.value,
-                headers = mapOf("Referer" to "https://t.me/")
+            ExtractorLink(
+                this.name,
+                "Streaming Diretto HD",
+                data,
+                "https://t.me/",
+                Qualities.P1080.value,
+                ExtractorLinkType.VIDEO
             )
         )
         return true
