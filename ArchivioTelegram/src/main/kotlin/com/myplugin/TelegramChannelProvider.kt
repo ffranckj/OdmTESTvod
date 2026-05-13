@@ -1,13 +1,14 @@
 package com.telegram.vod // Mantieni inalterato il package originale del tuo progetto
 
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.fasterxml.jackson.databind.DeserializationFeature
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.fasterxml.jackson.module.kotlin.readValue
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
-import com.lagradost.cloudstream3.utils.AppUtils.parseJson
-import com.lagradost.cloudstream3.utils.AppUtils.toJson
-import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 
-// 1. CLASSI PUBBLICHE ESTERNE: Fondamentali per evitare che Jackson/R8 blocchino la decodifica JSON
+// Definiamo i modelli dati esternamente per una perfetta compatibilità di compilazione
 data class CatalogoEntry(
     @JsonProperty("streamUrl") val streamUrl: String?,
     @JsonProperty("title") val title: String?
@@ -25,21 +26,59 @@ class TelegramChannelProvider : MainAPI() {
     override var lang = "it"
     override val hasMainPage = true
 
-    // Immagine segnaposto predefinita
+    // Immagine standard in assenza di copertina
     private val defaultCover = "https://placehold.co/500x750/222222/FFFFFF/png?text=Archivio+Cinema+Italiano"
     
-    // SORGENTE UNICA: Il tuo catalogo JSON su Gist
-    private val databaseUrl = "https://gist.githubusercontent.com/ffranckj/d73933a36991f0ff223efa048937fdf1/raw/catalogo.json"
+    // URL Primario del file Raw
+    private val databaseUrl = "https://gist.githubusercontent.com/ffranckj/d73933a36991f0ff223efa048937fdf1/raw/9ef3a9cd7a0c90ee579e23dad276a204bb18a9ce/gistfile2.txt"
     
-    // Cache in memoria per evitare di scaricare il file remoto a ogni singola operazione
+    // URL di Fallback punta all'interfaccia Gist grezza nel caso il link raw dia 404
+    private val fallbackUrl = "https://gist.github.com/ffranckj/d73933a36991f0ff223efa048937fdf1"
+    
     private var catalogoCache: Map<String, CatalogoEntry>? = null
 
-    // Scarica il JSON solo se non è già presente in cache
+    // Inizializziamo un ObjectMapper personalizzato e permissivo
+    private val mapper: ObjectMapper = jacksonObjectMapper().apply {
+        configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+        configure(DeserializationFeature.ACCEPT_EMPTY_STRING_AS_NULL_OBJECT, true)
+    }
+
+    // Funzione sicura per il fetch del JSON con controllo anti-404
     private suspend fun getCatalogo(): Map<String, CatalogoEntry> {
         catalogoCache?.let { return it }
+        
+        var jsonText = ""
+        try {
+            val response = app.get(databaseUrl)
+            if (response.code == 200 && !response.text.contains("404: Not Found")) {
+                jsonText = response.text
+            }
+        } catch (e: Exception) {
+            // Ignora e tenta il fallback
+        }
+
+        // Se l'URL primario ha fallito o ha restituito 404, tentiamo il fallback sul documento sorgente
+        if (jsonText.isBlank() || jsonText.contains("404")) {
+            try {
+                val fallbackDoc = app.get(fallbackUrl).document
+                // Estrae il testo grezzo dalla tabella del codice Gist
+                val codeBlock = fallbackDoc.selectFirst("table.highlight, .js-file-line-container")
+                if (codeBlock != null) {
+                    jsonText = codeBlock.text()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // Se non abbiamo recuperato nulla, interrompiamo in modo sicuro
+        if (jsonText.isBlank() || jsonText.contains("404: Not Found")) {
+            return emptyMap()
+        }
+
         return try {
-            val responseText = app.get(databaseUrl).text
-            val map = parseJson<Map<String, CatalogoEntry>>(responseText)
+            // Mappiamo il testo ripulito
+            val map: Map<String, CatalogoEntry> = mapper.readValue(jsonText)
             catalogoCache = map
             map
         } catch (e: Exception) {
@@ -48,7 +87,6 @@ class TelegramChannelProvider : MainAPI() {
         }
     }
 
-    // Pulisce la stringa testuale da formattazioni residue del dizionario
     private fun pulisciTitolo(titoloGrezzo: String?): String {
         if (titoloGrezzo.isNullOrBlank()) return "Film Senza Titolo"
         return titoloGrezzo.replace("*", "")
@@ -56,7 +94,6 @@ class TelegramChannelProvider : MainAPI() {
                            .trim()
     }
 
-    // Ordinamento di pertinenza per la ricerca
     private fun calcolaPertinenza(titolo: String, query: String): Int {
         val t = titolo.lowercase()
         val q = query.lowercase()
@@ -70,7 +107,7 @@ class TelegramChannelProvider : MainAPI() {
     }
 
     // =========================================================================
-    // HOME PAGE: Carica gli ultimi 100 inserimenti per un rendering istantaneo
+    // HOME PAGE: Popolata esclusivamente con i dati validi del JSON
     // =========================================================================
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val catalogo = getCatalogo()
@@ -78,33 +115,29 @@ class TelegramChannelProvider : MainAPI() {
 
         val movies = mutableListOf<SearchResponse>()
         
-        // Estraiamo tutte le chiavi valide
-        val vociValide = catalogo.entries.filter { !it.value.streamUrl.isNullOrBlank() }
-        
-        // Prendiamo solo le ultime 100 voci per evitare il blocco grafico dell'emulatore Android
-        val ultimeVoci = vociValide.takeLast(100)
+        // Filtra chiavi valide e limita a 100 elementi per un caricamento grafico istantaneo
+        val vociValide = catalogo.entries.filter { !it.value.streamUrl.isNullOrBlank() }.takeLast(100)
 
-        for ((id, entry) in ultimeVoci) {
+        for ((id, entry) in vociValide) {
             val streamUrl = entry.streamUrl!!.trim()
             val titoloPulito = pulisciTitolo(entry.title)
             
-            val target = StreamTarget(titoloPulito, streamUrl).toJson()
+            // Passiamo l'oggetto serializzato
+            val targetData = mapper.writeValueAsString(StreamTarget(titoloPulito, streamUrl))
 
-            movies.add(newMovieSearchResponse(titoloPulito, target, TvType.Movie) {
+            movies.add(newMovieSearchResponse(titoloPulito, targetData, TvType.Movie) {
                 this.posterUrl = defaultCover
             })
         }
 
         if (movies.isEmpty()) return null
-        
-        // Mostriamo la riga in Home ordinata a comparsa dal più recente
-        return newHomePageResponse("Ultimi Arrivi", movies.reversed())
+        return newHomePageResponse("Catalogo Gist", movies.reversed())
     }
 
     private data class RisultatoOrdinato(val response: SearchResponse, val score: Int)
 
     // =========================================================================
-    // RICERCA: Esplora istantaneamente l'intero database di 3660 film in cache
+    // RICERCA GLOBALE SUL JSON
     // =========================================================================
     override suspend fun search(query: String): List<SearchResponse> {
         val catalogo = getCatalogo()
@@ -124,8 +157,8 @@ class TelegramChannelProvider : MainAPI() {
                 }
 
                 if (score > 0) {
-                    val target = StreamTarget(titoloPulito, streamUrl).toJson()
-                    val resp = newMovieSearchResponse(titoloPulito, target, TvType.Movie) {
+                    val targetData = mapper.writeValueAsString(StreamTarget(titoloPulito, streamUrl))
+                    val resp = newMovieSearchResponse(titoloPulito, targetData, TvType.Movie) {
                         this.posterUrl = defaultCover
                     }
                     risultati.add(RisultatoOrdinato(resp, score))
@@ -136,15 +169,16 @@ class TelegramChannelProvider : MainAPI() {
         return risultati.sortedByDescending { it.score }.map { it.response }
     }
 
-    // =========================================================================
-    // CARICAMENTO SCHEDA E FLUSSO STREAMING
-    // =========================================================================
     override suspend fun load(url: String): LoadResponse? {
-        val target = tryParseJson<StreamTarget>(url) ?: return null
+        val target = try {
+            mapper.readValue<StreamTarget>(url)
+        } catch (e: Exception) {
+            return null
+        }
         
         return newMovieLoadResponse(target.title, url, TvType.Movie, target.streamUrl) {
             this.posterUrl = defaultCover
-            this.plot = "Flusso streaming diretto prelevato dal catalogo JSON sorgente."
+            this.plot = "Flusso video nativo estratto dal JSON remoto."
         }
     }
 
