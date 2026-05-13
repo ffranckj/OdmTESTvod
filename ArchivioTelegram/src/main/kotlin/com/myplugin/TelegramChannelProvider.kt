@@ -12,24 +12,23 @@ class TelegramChannelProvider : MainAPI() {
     override var lang = "it"
     override val hasMainPage = true
 
-    // Chiave TMDB iniettata in sicurezza in fase di build
+    // Securely pull the TMDB key injected via local.properties -> BuildConfig
     private val tmdbApiKey = BuildConfig.TMDB_API 
 
     private val databaseUrl = "https://gist.githubusercontent.com/ffranckj/d73933a36991f0ff223efa048937fdf1/raw/catalogo.json"
     private var linkDatabase: Map<String, String>? = null
     
-    // Immagine di fallback se il film non ha poster su TMDB
-    private val defaultCover = "https://image.tmdb.org/t/p/w500/8Ph696ih9o99X9v76Y99S97799.jpg"
+    // FIXED: Using a reliable, active placeholder URL to prevent Coil HTTP 404 crashes
+    private val defaultCover = "https://placehold.co/500x750/222222/FFFFFF/png?text=Locandina+Non+Disponibile"
 
-    // Struttura per memorizzare sia il poster che il banner di sfondo da TMDB
     private data class TmdbArt(val poster: String, val background: String)
 
-    // Scarica e mappa in cache il catalogo JSON remoto
     private suspend fun getDatabase(): Map<String, String> {
         if (linkDatabase == null) {
             try {
                 val jsonText = app.get(databaseUrl).text
                 val rawMap = AppUtils.parseJson<Map<String, String>>(jsonText)
+                // Ensure absolute cleanliness of dictionary keys
                 linkDatabase = rawMap.mapKeys { it.key.trim() }
             } catch (e: Exception) {
                 linkDatabase = emptyMap()
@@ -38,12 +37,11 @@ class TelegramChannelProvider : MainAPI() {
         return linkDatabase ?: emptyMap()
     }
 
-    // Interroga TMDB per ottenere Grafiche Ufficiali (Poster + Sfondo)
     private suspend fun fetchTmdbArt(title: String): TmdbArt {
         if (tmdbApiKey.isBlank()) return TmdbArt(defaultCover, defaultCover)
 
         return try {
-            // Pulisce il titolo da tag Telegram per massimizzare l'accuratezza di TMDB
+            // Strip out common upload tags so TMDB's search engine understands the raw title string
             val cleanTitle = title.replace(Regex("(?i)(film|streaming|ita|hd|sub|download|\\[.*?\\]|\\(.*?\\))"), "").trim()
             val query = URLEncoder.encode(cleanTitle, "UTF-8")
             val url = "https://api.themoviedb.org/3/search/movie?api_key=$tmdbApiKey&query=$query&language=it-IT"
@@ -52,6 +50,7 @@ class TelegramChannelProvider : MainAPI() {
             val json = AppUtils.parseJson<TmdbSearchResponse>(response)
             val firstResult = json.results?.firstOrNull()
             
+            // Build absolute image paths only if TMDB returns valid partial paths
             val poster = firstResult?.poster_path?.let { "https://image.tmdb.org/t/p/w500$it" } ?: defaultCover
             val banner = firstResult?.backdrop_path?.let { "https://image.tmdb.org/t/p/w1280$it" } ?: poster
             
@@ -61,7 +60,6 @@ class TelegramChannelProvider : MainAPI() {
         }
     }
 
-    // Estrae l'ID univoco del post di Telegram da un URL
     private fun extractPostId(url: String): String {
         return url.substringBefore("?").substringAfterLast("/").trim()
     }
@@ -77,14 +75,11 @@ class TelegramChannelProvider : MainAPI() {
             val baseHref = node.selectFirst(".tgme_widget_message_date")?.attr("href") ?: continue
             val postId = extractPostId(baseHref)
             
-            // REGOLA 1: Mostra in Home SOLO i film che esistono effettivamente nel catalogo.json
+            // Only populate Home if the specific Post ID exists inside catalogo.json
             if (db.containsKey(postId)) {
                 val rawTitle = textNode.text().substringBefore("\n").trim()
-                
-                // DELEGA TOTALE A TMDB: Scarica le grafiche ufficiali
                 val art = fetchTmdbArt(rawTitle)
                 
-                // Passiamo le grafiche via URL per farle ritrovare alla funzione load()
                 val encodedPoster = URLEncoder.encode(art.poster, "UTF-8")
                 val encodedBanner = URLEncoder.encode(art.background, "UTF-8")
                 val targetUrl = "$baseHref?poster=$encodedPoster&banner=$encodedBanner"
@@ -102,8 +97,6 @@ class TelegramChannelProvider : MainAPI() {
         val db = getDatabase()
         val searchResults = mutableListOf<SearchResponse>()
         
-        // REGOLA 2: Ricerca effettuata interamente scorrendo i post storici di Telegram,
-        // ma filtrando rigorosamente SOLO quelli presenti nel DB e che matchano la query.
         val encodedQuery = URLEncoder.encode(query, "UTF-8")
         val searchUrl = "https://t.me/s/archiviocinemaitaliano?q=$encodedQuery"
         val document = app.get(searchUrl).document
@@ -114,7 +107,7 @@ class TelegramChannelProvider : MainAPI() {
             val baseHref = node.selectFirst(".tgme_widget_message_date")?.attr("href") ?: continue
             val postId = extractPostId(baseHref)
 
-            // Il post deve essere nel database locale per garantire lo streaming
+            // Strict Validation: Item must exist in DB to guarantee a working stream link
             if (db.containsKey(postId)) {
                 val rawTitle = textNode.text().substringBefore("\n").trim()
                 
@@ -134,7 +127,7 @@ class TelegramChannelProvider : MainAPI() {
     override suspend fun load(url: String): LoadResponse? {
         val cleanUrl = url.substringBefore("?")
         
-        // Recupera le grafiche TMDB iniettate nei parametri durante la ricerca/home
+        // FIXED: URLDecoder safely unpacks the string so Coil receives a clean HTTP target
         val posterParam = if (url.contains("poster=")) {
             URLDecoder.decode(url.substringAfter("poster=").substringBefore("&"), "UTF-8")
         } else defaultCover
@@ -150,7 +143,7 @@ class TelegramChannelProvider : MainAPI() {
         return newMovieLoadResponse(title, url, TvType.Movie, cleanUrl) {
             this.plot = rawText
             this.posterUrl = posterParam
-            this.backgroundPosterUrl = bannerParam // Applica il banner largo in cima alla scheda
+            this.backgroundPosterUrl = bannerParam 
         }
     }
 
@@ -168,7 +161,7 @@ class TelegramChannelProvider : MainAPI() {
         callback.invoke(
             ExtractorLink(
                 source = this.name,
-                name = "Streaming TMDB/Gist",
+                name = "Streaming Diretto",
                 url = finalUrl,
                 referer = "https://t.me/",
                 quality = Qualities.P1080.value,
@@ -178,7 +171,6 @@ class TelegramChannelProvider : MainAPI() {
         return true
     }
 
-    // Classi dati di supporto per la decodifica JSON di TMDB
     private data class TmdbSearchResponse(val results: List<TmdbMovie>?)
     private data class TmdbMovie(val poster_path: String?, val backdrop_path: String?)
 }
