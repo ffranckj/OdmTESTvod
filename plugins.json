@@ -14,7 +14,7 @@
         ],
         "version": -1,
         "internalName": "odmvodprovide",
-        "description": "Bundle: Archivio Cinema Italiano (Telegram) + OdmVod",
+        "description": "Sito Web: OdmVod (Cinema Italiano Scraper Nativo)",
         "url": "https://raw.githubusercontent.com/ffranckj/OdmTESTvod/builds/odmvodprovide.cs3",
         "name": "odmvodprovide"
     },
@@ -33,7 +33,7 @@
         ],
         "version": -1,
         "internalName": "odmvodprovider",
-        "description": "Archivio Storico del Cinema Italiano in alta definizione",
+        "description": "Canale Telegram: Archivio Cinema Italiano (Locandine HD via TMDB)",
         "url": "https://raw.githubusercontent.com/ffranckj/OdmTESTvod/builds/odmvodprovider.cs3",
         "name": "odmvodprovider"
     }
