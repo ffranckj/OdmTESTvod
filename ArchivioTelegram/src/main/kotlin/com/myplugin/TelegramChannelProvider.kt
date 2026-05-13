@@ -16,20 +16,25 @@ class TelegramChannelProvider : MainAPI() {
     override var lang = "it"
     override val hasMainPage = true
 
-    // Immagine di fallback se il post originale non ha una copertina
+    // Immagine di fallback se il post originale su Telegram non ha una copertina
     private val defaultCover = "https://placehold.co/500x750/222222/FFFFFF/png?text=Locandina+Non+Disponibile"
     
+    // URL del database Gist. 
+    // Nota: se aggiorni il file catalogo.json su Gist, assicurati di aggiornare l'hash del commit 
+    // in questo link, oppure rimuovi la parte /0cfb5ddca521179de3ba7e859e3099d81b6488d2/ per far 
+    // leggere all'applicazione sempre l'ultima versione in tempo reale.
     private val databaseUrl = "https://gist.githubusercontent.com/ffranckj/d73933a36991f0ff223efa048937fdf1/raw/0cfb5ddca521179de3ba7e859e3099d81b6488d2/catalogo.json"
     private var linkDatabase: Map<String, String>? = null
 
-    // Struttura per passare i dati in modo compatto al caricatore del video
+    // Struttura dati interna per instradare in modo sicuro l'URL di streaming effettivo e la copertina
     private data class TelegramTarget(val streamUrl: String, val poster: String)
 
-    // Sincronizzazione sicura del catalogo remoto (Gist)
+    // Sincronizzazione e caricamento in cache del catalogo JSON
     private suspend fun getDatabase(): Map<String, String> {
         if (linkDatabase == null) {
             try {
                 val jsonText = app.get(databaseUrl).text
+                // Mappa il JSON associando in modo pulito l'ID numerico al link Render
                 linkDatabase = parseJson<Map<String, String>>(jsonText).mapKeys { it.key.trim() }
             } catch (e: Exception) {
                 linkDatabase = emptyMap()
@@ -38,7 +43,7 @@ class TelegramChannelProvider : MainAPI() {
         return linkDatabase ?: emptyMap()
     }
 
-    // Estrazione dinamica del poster nativo di Telegram tramite Espressioni Regolari
+    // Estrazione pulita del poster nativo di Telegram tramite Espressioni Regolari
     private fun extractCleanPoster(styleString: String?): String {
         if (styleString.isNullOrBlank()) return defaultCover
         return try {
@@ -50,22 +55,25 @@ class TelegramChannelProvider : MainAPI() {
         }
     }
 
+    // Estrae in modo affidabile l'ID numerico finale dall'URL del post Telegram
     private fun extractPostId(url: String): String {
         return url.substringBefore("?").substringAfterLast("/").trim()
     }
 
-    // Calcolo del punteggio di rilevanza per ordinare la ricerca Fuzzy
+    // Algoritmo di calcolo della rilevanza (Scoring Fuzzy) per ordinare i risultati
     private fun calculateRelevance(title: String, query: String): Int {
         val cleanTitle = title.lowercase()
         val cleanQuery = query.lowercase()
 
+        // Se il titolo non contiene le lettere cercate, scarta subito
+        if (!cleanTitle.contains(cleanQuery)) return 0
+
         return when {
-            cleanTitle == cleanQuery -> 100 // Match Perfetto
-            cleanTitle.startsWith(cleanQuery) -> 75 // Inizia con la query
-            // La query si trova all'inizio di una qualsiasi parola del titolo
-            cleanTitle.split(" ").any { it.startsWith(cleanQuery) } -> 50 
-            cleanTitle.contains(cleanQuery) -> 25 // Contiene la query ma in mezzo a una parola
-            else -> 0
+            cleanTitle == cleanQuery -> 100 // Corrispondenza perfetta
+            cleanTitle.startsWith(cleanQuery) -> 80 // Il titolo inizia con le lettere cercate
+            // Una qualsiasi parola del titolo inizia con le lettere cercate
+            cleanTitle.split(Regex("\\s+")).any { it.startsWith(cleanQuery) } -> 60 
+            else -> 40 // Le lettere si trovano all'interno di una parola
         }
     }
 
@@ -91,18 +99,21 @@ class TelegramChannelProvider : MainAPI() {
             val hasVideo = node.selectFirst(".tgme_widget_message_video, .tgme_widget_message_video_player") != null
             
             if (textNode != null && hasVideo) {
-                val rawTitle = textNode.text().substringBefore("\n").trim()
                 val baseHref = node.selectFirst(".tgme_widget_message_date")?.attr("href") ?: continue
                 val postId = extractPostId(baseHref)
                 
-                val finalPoster = currentBannerImg ?: defaultCover
-                val streamLink = db[postId] ?: baseHref
-                val targetData = TelegramTarget(streamLink, finalPoster).toJson()
-                
-                movies.add(newMovieSearchResponse(rawTitle, targetData, TvType.Movie) {
-                    this.posterUrl = finalPoster
-                })
-                
+                // VINCOLO STRUTTURALE: Mostra in Home SOLO i film regolarmente associati nel catalogo JSON
+                val streamUrl = db[postId]
+                if (streamUrl != null) {
+                    val rawTitle = textNode.text().substringBefore("\n").trim()
+                    val finalPoster = currentBannerImg ?: defaultCover
+                    
+                    val targetData = TelegramTarget(streamUrl, finalPoster).toJson()
+                    
+                    movies.add(newMovieSearchResponse(rawTitle, targetData, TvType.Movie) {
+                        this.posterUrl = finalPoster
+                    })
+                }
                 currentBannerImg = null
             }
         }
@@ -110,14 +121,18 @@ class TelegramChannelProvider : MainAPI() {
         return newHomePageResponse("Archivio Cinema", movies.reversed())
     }
 
-    // Struttura temporanea di supporto per ordinare i risultati di ricerca
+    // Classe di supporto temporanea per ordinare i risultati in base al punteggio calcolato
     private data class ScoredResult(val response: SearchResponse, val score: Int)
 
     override suspend fun search(query: String): List<SearchResponse> {
         val db = getDatabase()
         val scoredResults = mutableListOf<ScoredResult>()
+        val cleanQuery = query.trim()
         
-        val encodedQuery = URLEncoder.encode(query, "UTF-8")
+        // Determina in automatico se l'utente sta cercando direttamente tramite Codice ID numerico
+        val isCodeSearch = cleanQuery.toIntOrNull() != null
+
+        val encodedQuery = URLEncoder.encode(cleanQuery, "UTF-8")
         val searchUrl = "https://t.me/s/archiviocinemaitaliano?q=$encodedQuery"
         val document = app.get(searchUrl).document
         val nodes = document.select(".tgme_widget_message")
@@ -137,30 +152,60 @@ class TelegramChannelProvider : MainAPI() {
             val textNode = node.selectFirst(".tgme_widget_message_text") ?: continue
             val baseHref = node.selectFirst(".tgme_widget_message_date")?.attr("href") ?: continue
             val postId = extractPostId(baseHref)
-            val streamLink = db[postId]
-
-            val rawTitle = textNode.text().substringBefore("\n").trim()
-            val score = calculateRelevance(rawTitle, query)
-
-            // Aggiungiamo alla lista se ha un punteggio di rilevanza valido o se è mappato nel DB
-            if (score > 0 || streamLink != null) {
-                // CORRETTO: Sostituito 'se' con 'if'
-                val finalScore = if (score > 0) score else 10 
-                val finalPoster = currentBannerImg ?: defaultCover
-                val resolvedStream = streamLink ?: baseHref
+            
+            // Il flusso video deve corrispondere in modo assoluto al mapping del JSON
+            val streamUrl = db[postId]
+            if (streamUrl != null) {
+                val rawTitle = textNode.text().substringBefore("\n").trim()
                 
-                val targetData = TelegramTarget(resolvedStream, finalPoster).toJson()
-
-                val searchResponse = newMovieSearchResponse(rawTitle, targetData, TvType.Movie) {
-                    this.posterUrl = finalPoster
+                // Assegna il punteggio: se è il codice ID esatto cercato, riceve la priorità massima
+                val score = when {
+                    isCodeSearch && postId == cleanQuery -> 200
+                    else -> calculateRelevance(rawTitle, cleanQuery)
                 }
-                
-                scoredResults.add(ScoredResult(searchResponse, finalScore))
+
+                // Includi nei risultati se rispetta la rilevanza testuale o se corrisponde al codice
+                if (score > 0 || (isCodeSearch && textNode.text().contains(cleanQuery))) {
+                    val finalPoster = currentBannerImg ?: defaultCover
+                    val finalScore = if (score > 0) score else 10
+                    
+                    val targetData = TelegramTarget(streamUrl, finalPoster).toJson()
+
+                    val searchResponse = newMovieSearchResponse(rawTitle, targetData, TvType.Movie) {
+                        this.posterUrl = finalPoster
+                    }
+                    
+                    scoredResults.add(ScoredResult(searchResponse, finalScore))
+                }
                 currentBannerImg = null
             }
         }
         
-        // Ordina dal punteggio più alto (più rilevante) al più basso e restituisce solo la lista di SearchResponse
+        // FALLBACK DI PRECISIONE: Se si cerca per Codice ID ed è presente nel JSON, ma la ricerca 
+        // standard di Telegram non lo ha restituito, interroghiamo direttamente il singolo post.
+        if (scoredResults.isEmpty() && isCodeSearch && db.containsKey(cleanQuery)) {
+            try {
+                val directUrl = "https://t.me/s/archiviocinemaitaliano/$cleanQuery"
+                val doc = app.get(directUrl).document
+                val textNode = doc.selectFirst(".tgme_widget_message_text")
+                val streamUrl = db[cleanQuery]
+                if (textNode != null && streamUrl != null) {
+                    val rawTitle = textNode.text().substringBefore("\n").trim()
+                    val photoNode = doc.selectFirst(".tgme_widget_message_photo_image")
+                    val poster = if (photoNode != null) extractCleanPoster(photoNode.attr("style")) else defaultCover
+                    
+                    val targetData = TelegramTarget(streamUrl, poster).toJson()
+                    val searchResponse = newMovieSearchResponse(rawTitle, targetData, TvType.Movie) {
+                        this.posterUrl = poster
+                    }
+                    scoredResults.add(ScoredResult(searchResponse, 200))
+                }
+            } catch (e: Exception) {
+                // Ignora silenziosamente errori di rete nel blocco di emergenza
+            }
+        }
+
+        // Restituisce la lista ordinata partendo dal punteggio più alto (più pertinente) al più basso
         return scoredResults.sortedByDescending { it.score }.map { it.response }
     }
 
@@ -170,7 +215,7 @@ class TelegramChannelProvider : MainAPI() {
         return newMovieLoadResponse("Film in Riproduzione", url, TvType.Movie, target.streamUrl) {
             this.posterUrl = target.poster
             this.backgroundPosterUrl = target.poster
-            this.plot = "Streaming nativo indicizzato dal canale Telegram."
+            this.plot = "Streaming nativo erogato dal servizio dati personale."
         }
     }
 
@@ -180,7 +225,7 @@ class TelegramChannelProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // Mantenimento della firma stabile richiesta dall'infrastruttura di build CI
+        // Interfaccia diretta e stabile per il riproduttore video di CloudStream
         callback.invoke(
             newExtractorLink(
                 this.name,
