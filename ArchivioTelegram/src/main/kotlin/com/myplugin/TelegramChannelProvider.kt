@@ -15,13 +15,13 @@ class TelegramChannelProvider : MainAPI() {
     override var lang = "it"
     override val hasMainPage = true
 
-    // Copertina di fallback standard se il nodo sorgente non possiede miniature grafiche
+    // Copertina di fallback standard in assenza di grafiche nel post sorgente
     private val defaultCover = "https://placehold.co/500x750/222222/FFFFFF/png?text=Locandina+Non+Disponibile"
     
-    // URL diretto al JSON live su Gist (privo di riferimenti di commit temporali)
+    // URL di fetch remoto verso l'ultima versione del catalogo Gist
     private val databaseUrl = "https://gist.githubusercontent.com/ffranckj/d73933a36991f0ff223efa048937fdf1/raw/catalogo.json"
     
-    // Modello dati per il mapping nativo del nuovo formato JSON (Oggetto per ogni ID)
+    // Modello dati per il mapping strutturato delle chiavi JSON
     private data class CatalogoEntry(
         @JsonProperty("streamUrl") val streamUrl: String?,
         @JsonProperty("title") val title: String?
@@ -29,7 +29,7 @@ class TelegramChannelProvider : MainAPI() {
     
     private var linkDatabase: Map<String, CatalogoEntry>? = null
 
-    // Struttura di persistenza per instradare in modo nativo e disaccoppiato la sessione in load()
+    // Modello dati di navigazione interna trasferito alle viste di riproduzione
     private data class TelegramTarget(
         @JsonProperty("postId") val postId: String,
         @JsonProperty("title") val title: String,
@@ -37,7 +37,6 @@ class TelegramChannelProvider : MainAPI() {
         @JsonProperty("streamUrl") val streamUrl: String
     )
 
-    // Esecuzione del fetch remoto e indicizzazione del catalogo in memoria
     private suspend fun getDatabase(): Map<String, CatalogoEntry> {
         if (linkDatabase == null) {
             try {
@@ -50,7 +49,6 @@ class TelegramChannelProvider : MainAPI() {
         return linkDatabase ?: emptyMap()
     }
 
-    // Estrazione dell'immagine sorgente nativa di Telegram
     private fun extractCleanPoster(styleString: String?): String {
         if (styleString.isNullOrBlank()) return defaultCover
         return try {
@@ -62,41 +60,38 @@ class TelegramChannelProvider : MainAPI() {
         }
     }
 
-    // Estrapola in modo assoluto la chiave ID univoca di Telegram (es. "2228")
     private fun extractPostId(url: String): String {
         return url.substringBefore("?").substringAfterLast("/").trim()
     }
 
-    // Ricerca a finestra per gestire la transcodifica asincrona e disallineata su Telegram
+    // Risoluzione potenziata: esplora una finestra sequenziale estesa (+/- 30 messaggi)
+    // per intercettare l'associazione tra post descrittivo e flusso streaming Render remoto.
     private fun findCatalogoEntryForPost(db: Map<String, CatalogoEntry>, basePostId: String): CatalogoEntry? {
         val cleanId = basePostId.trim()
         
-        // 1. Lettura in aderenza perfetta all'ID esatto
         db[cleanId]?.let { return it }
         
-        // 2. Esplorazione sequenziale sui nodi adiacenti [ID-6, ID+6]
         val idNum = cleanId.toIntOrNull()
         if (idNum != null) {
-            for (offset in 1..6) {
+            // Esplora in avanti per flussi inviati in coda
+            for (offset in 1..30) {
                 db[(idNum + offset).toString()]?.let { return it }
             }
-            for (offset in 1..6) {
+            // Esplora all'indietro
+            for (offset in 1..30) {
                 db[(idNum - offset).toString()]?.let { return it }
             }
         }
         
-        // 3. Fallback di aderenza parziale sulla chiave
         return db.entries.firstOrNull { it.key.contains(cleanId) }?.value
     }
 
-    // Funzione helper per ripulire la stringa del titolo sia dai post che dal JSON
     private fun sanitizeTitle(raw: String): String {
-        return raw.replace("*", "") // Elimina eventuale formattazione Markdown (es. **)
+        return raw.replace("*", "")
                   .removeSuffix("-")
                   .trim()
     }
 
-    // Punteggio di pertinenza intatto per garantire l'ordinamento Fuzzy dei risultati
     private fun calculateRelevance(title: String, query: String): Int {
         val cleanTitle = title.lowercase()
         val cleanQuery = query.lowercase()
@@ -133,34 +128,31 @@ class TelegramChannelProvider : MainAPI() {
                 val baseHref = node.selectFirst(".tgme_widget_message_date")?.attr("href") ?: continue
                 val postId = extractPostId(baseHref)
                 
-                // Estrae la voce strutturata dal nuovo catalogo remoto
+                // DISACCOPPIAMENTO HOME: Estraiamo il titolo nativo e mostriamo il film a prescindere
+                // dal mapping immediato sul JSON, garantendo il popolamento immediato della vista.
                 val catEntry = findCatalogoEntryForPost(db, postId)
-                val streamUrl = catEntry?.streamUrl?.trim()
+                val resolvedStream = catEntry?.streamUrl?.trim() ?: ""
                 
-                if (!streamUrl.isNullOrBlank()) {
-                    // Priorità del titolo: JSON ufficiale -> Tag Grassetto -> Prima riga testuale
-                    val jsonTitle = catEntry.title
-                    val bTag = textNode.selectFirst("b")
+                val jsonTitle = catEntry?.title
+                val bTag = textNode.selectFirst("b")
+                
+                val rawUnsanitizedTitle = when {
+                    !jsonTitle.isNullOrBlank() -> jsonTitle
+                    bTag != null && bTag.text().isNotBlank() -> bTag.text()
+                    else -> fullText.split("\n").first().split("-").first()
+                }
+                
+                val cleanTitle = sanitizeTitle(rawUnsanitizedTitle)
+                
+                if (cleanTitle.length > 2 && cleanTitle.lowercase() !in setOf("se", "io", "il", "la", "per", "un", "una", "view")) {
+                    val finalPoster = currentBannerImg ?: defaultCover
+                    val targetData = TelegramTarget(postId, cleanTitle, finalPoster, resolvedStream).toJson()
                     
-                    val rawUnsanitizedTitle = when {
-                        !jsonTitle.isNullOrBlank() -> jsonTitle
-                        bTag != null && bTag.text().isNotBlank() -> bTag.text()
-                        else -> fullText.split("\n").first().split("-").first()
-                    }
+                    movies.add(newMovieSearchResponse(cleanTitle, targetData, TvType.Movie) {
+                        this.posterUrl = finalPoster
+                    })
                     
-                    val cleanTitle = sanitizeTitle(rawUnsanitizedTitle)
-                    
-                    // Esclusione nativa di stringhe spurie o descrittori transitori
-                    if (cleanTitle.length > 2 && cleanTitle.lowercase() !in setOf("se", "io", "il", "la", "per", "un", "una", "view")) {
-                        val finalPoster = currentBannerImg ?: defaultCover
-                        val targetData = TelegramTarget(postId, cleanTitle, finalPoster, streamUrl).toJson()
-                        
-                        movies.add(newMovieSearchResponse(cleanTitle, targetData, TvType.Movie) {
-                            this.posterUrl = finalPoster
-                        })
-                        
-                        currentBannerImg = null
-                    }
+                    currentBannerImg = null
                 }
             }
         }
@@ -198,45 +190,42 @@ class TelegramChannelProvider : MainAPI() {
                 val postId = extractPostId(baseHref)
                 
                 val catEntry = findCatalogoEntryForPost(db, postId)
-                val streamUrl = catEntry?.streamUrl?.trim()
+                val resolvedStream = catEntry?.streamUrl?.trim() ?: ""
                 
-                if (!streamUrl.isNullOrBlank()) {
-                    val jsonTitle = catEntry.title
-                    val bTag = textNode.selectFirst("b")
-                    
-                    val rawUnsanitizedTitle = when {
-                        !jsonTitle.isNullOrBlank() -> jsonTitle
-                        bTag != null && bTag.text().isNotBlank() -> bTag.text()
-                        else -> fullText.split("\n").first().split("-").first()
+                val jsonTitle = catEntry?.title
+                val bTag = textNode.selectFirst("b")
+                
+                val rawUnsanitizedTitle = when {
+                    !jsonTitle.isNullOrBlank() -> jsonTitle
+                    bTag != null && bTag.text().isNotBlank() -> bTag.text()
+                    else -> fullText.split("\n").first().split("-").first()
+                }
+
+                val cleanTitle = sanitizeTitle(rawUnsanitizedTitle)
+
+                if (cleanTitle.length > 2 && cleanTitle.lowercase() !in setOf("se", "io", "il", "la", "per", "un", "una")) {
+                    val score = when {
+                        isCodeSearch && postId == cleanQuery -> 200
+                        else -> calculateRelevance(cleanTitle, cleanQuery)
                     }
+                    
+                    val finalScore = if (score > 0) score else if (fullText.contains(cleanQuery, ignoreCase = true)) 20 else 0
 
-                    val cleanTitle = sanitizeTitle(rawUnsanitizedTitle)
+                    if (finalScore > 0 || isCodeSearch) {
+                        val finalPoster = currentBannerImg ?: defaultCover
+                        val targetData = TelegramTarget(postId, cleanTitle, finalPoster, resolvedStream).toJson()
 
-                    if (cleanTitle.length > 2 && cleanTitle.lowercase() !in setOf("se", "io", "il", "la", "per", "un", "una")) {
-                        val score = when {
-                            isCodeSearch && postId == cleanQuery -> 200 // Identificativo esatto cercato
-                            else -> calculateRelevance(cleanTitle, cleanQuery)
+                        val searchResponse = newMovieSearchResponse(cleanTitle, targetData, TvType.Movie) {
+                            this.posterUrl = finalPoster
                         }
                         
-                        val finalScore = if (score > 0) score else if (fullText.contains(cleanQuery, ignoreCase = true)) 20 else 0
-
-                        if (finalScore > 0 || isCodeSearch) {
-                            val finalPoster = currentBannerImg ?: defaultCover
-                            val targetData = TelegramTarget(postId, cleanTitle, finalPoster, streamUrl).toJson()
-
-                            val searchResponse = newMovieSearchResponse(cleanTitle, targetData, TvType.Movie) {
-                                this.posterUrl = finalPoster
-                            }
-                            
-                            scoredResults.add(ScoredResult(searchResponse, finalScore))
-                            currentBannerImg = null
-                        }
+                        scoredResults.add(ScoredResult(searchResponse, finalScore))
+                        currentBannerImg = null
                     }
                 }
             }
         }
         
-        // Risoluzione diretta del post in caso di interrogazione di un ID numerico specifico
         if (scoredResults.isEmpty() && isCodeSearch) {
             try {
                 val directUrl = "https://t.me/s/archiviocinemaitaliano/$cleanQuery"
@@ -246,29 +235,27 @@ class TelegramChannelProvider : MainAPI() {
                     val fullText = textNode.text().trim()
                     
                     val catEntry = findCatalogoEntryForPost(db, cleanQuery)
-                    val streamUrl = catEntry?.streamUrl?.trim()
+                    val resolvedStream = catEntry?.streamUrl?.trim() ?: ""
                     
-                    if (!streamUrl.isNullOrBlank()) {
-                        val jsonTitle = catEntry.title
-                        val bTag = textNode.selectFirst("b")
-                        
-                        val rawUnsanitizedTitle = when {
-                            !jsonTitle.isNullOrBlank() -> jsonTitle
-                            bTag != null && bTag.text().isNotBlank() -> bTag.text()
-                            else -> fullText.split("\n").first().split("-").first()
+                    val jsonTitle = catEntry?.title
+                    val bTag = textNode.selectFirst("b")
+                    
+                    val rawUnsanitizedTitle = when {
+                        !jsonTitle.isNullOrBlank() -> jsonTitle
+                        bTag != null && bTag.text().isNotBlank() -> bTag.text()
+                        else -> fullText.split("\n").first().split("-").first()
+                    }
+                    
+                    val cleanTitle = sanitizeTitle(rawUnsanitizedTitle)
+                    val styleNode = doc.selectFirst(".tgme_widget_message_photo_wrap, .tgme_widget_message_video_thumb, .tgme_widget_message_photo_image")
+                    val poster = if (styleNode != null) extractCleanPoster(styleNode.attr("style")) else defaultCover
+                    
+                    if (cleanTitle.length > 2) {
+                        val targetData = TelegramTarget(cleanQuery, cleanTitle, poster, resolvedStream).toJson()
+                        val searchResponse = newMovieSearchResponse(cleanTitle, targetData, TvType.Movie) {
+                            this.posterUrl = poster
                         }
-                        
-                        val cleanTitle = sanitizeTitle(rawUnsanitizedTitle)
-                        val styleNode = doc.selectFirst(".tgme_widget_message_photo_wrap, .tgme_widget_message_video_thumb, .tgme_widget_message_photo_image")
-                        val poster = if (styleNode != null) extractCleanPoster(styleNode.attr("style")) else defaultCover
-                        
-                        if (cleanTitle.length > 2) {
-                            val targetData = TelegramTarget(cleanQuery, cleanTitle, poster, streamUrl).toJson()
-                            val searchResponse = newMovieSearchResponse(cleanTitle, targetData, TvType.Movie) {
-                                this.posterUrl = poster
-                            }
-                            scoredResults.add(ScoredResult(searchResponse, 200))
-                        }
+                        scoredResults.add(ScoredResult(searchResponse, 200))
                     }
                 }
             } catch (e: Exception) {}
@@ -283,7 +270,7 @@ class TelegramChannelProvider : MainAPI() {
         return newMovieLoadResponse(target.title, url, TvType.Movie, url) {
             this.posterUrl = target.poster
             this.backgroundPosterUrl = target.poster
-            this.plot = "ID Canale Telegram: #${target.postId}\nFlusso video in streaming nativo da Render."
+            this.plot = "ID Canale Telegram: #${target.postId}\nFlusso di rete nativo transcodificato tramite Render."
         }
     }
 
@@ -294,8 +281,17 @@ class TelegramChannelProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val target = tryParseJson<TelegramTarget>(data) ?: return false
+        var targetStreamUrl = target.streamUrl
 
-        if (target.streamUrl.isBlank() || target.streamUrl.contains("t.me/")) {
+        // Se la stringa passata non possiede un flusso pre-risolto in fase di parsing visivo,
+        // tentiamo una seconda risoluzione di profondità sul JSON live al momento del Play.
+        if (targetStreamUrl.isBlank() || targetStreamUrl.contains("t.me/")) {
+            val db = getDatabase()
+            val catEntry = findCatalogoEntryForPost(db, target.postId)
+            targetStreamUrl = catEntry?.streamUrl?.trim() ?: ""
+        }
+
+        if (targetStreamUrl.isBlank() || targetStreamUrl.contains("t.me/")) {
             return false
         }
 
@@ -303,7 +299,7 @@ class TelegramChannelProvider : MainAPI() {
             newExtractorLink(
                 source = this.name,
                 name = "Streaming Diretto HD",
-                url = target.streamUrl,
+                url = targetStreamUrl,
                 type = ExtractorLinkType.VIDEO
             )
         )
