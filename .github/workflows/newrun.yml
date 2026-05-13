@@ -15,6 +15,10 @@ on:
       - 'LICENSE'
   workflow_dispatch:
 
+# ABILITA I PERMESSI DI SCRITTURA GLOBALI PER CONSENTIRE IL PUSH SUL BRANCH 'builds':
+permissions:
+  contents: write
+
 jobs:
   build_plugin:
     name: Build Plugins
