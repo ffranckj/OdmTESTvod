@@ -1,8 +1,11 @@
-package com.telegram.vod
+package com.telegram.vod // Nota: se il tuo file originale usa "package com.myplugin", lascia quello
 
+import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
-import com.fasterxml.jackson.annotation.JsonProperty
+import com.lagradost.cloudstream3.utils.AppUtils.parseJson
+import com.lagradost.cloudstream3.utils.AppUtils.toJson
+import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 import java.net.URLEncoder
 
 class TelegramChannelProvider : MainAPI() {
@@ -12,7 +15,7 @@ class TelegramChannelProvider : MainAPI() {
     override var lang = "it"
     override val hasMainPage = true
 
-    // 1. AUTENTICAZIONE PULITA STILE "CORSARO VIOLA"
+    // Autenticazione pulita tramite Header HTTP (Bearer Token)
     private val tmdbApiKey = BuildConfig.TMDB_API 
     private val authHeaders = mapOf("Authorization" to "Bearer $tmdbApiKey")
 
@@ -28,10 +31,10 @@ class TelegramChannelProvider : MainAPI() {
         @JsonProperty("backdrop_path") val backdropPath: String?
     )
     
-    // Struttura per passare i dati di estrazione al riproduttore
+    // Struttura per passare i dati impacchettati al riproduttore
     private data class TelegramTarget(val streamUrl: String, val poster: String, val banner: String)
 
-    // Helper per link immagini dinamici
+    // Helper per costruire i link alle immagini ufficiali di TMDB
     private fun getImageUrl(path: String?, isBanner: Boolean = false): String {
         if (path.isNullOrBlank()) return defaultCover
         val size = if (isBanner) "w1280" else "w500"
@@ -42,7 +45,8 @@ class TelegramChannelProvider : MainAPI() {
         if (linkDatabase == null) {
             try {
                 val jsonText = app.get(databaseUrl).text
-                linkDatabase = AppUtils.parseJson<Map<String, String>>(jsonText).mapKeys { it.key.trim() }
+                // RISOLTO: Uso corretto di parseJson importato
+                linkDatabase = parseJson<Map<String, String>>(jsonText).mapKeys { it.key.trim() }
             } catch (e: Exception) {
                 linkDatabase = emptyMap()
             }
@@ -60,9 +64,9 @@ class TelegramChannelProvider : MainAPI() {
             val query = URLEncoder.encode(cleanTitle, "UTF-8")
             val url = "https://api.themoviedb.org/3/search/movie?query=$query&language=it-IT"
             
-            // Usiamo authHeaders invece di appiccicare la chiave nell'URL
             val response = app.get(url, headers = authHeaders).text
-            val firstResult = AppUtils.tryParseJson<TmdbSearchResp>(response)?.results?.firstOrNull()
+            // RISOLTO: Uso corretto di tryParseJson importato
+            val firstResult = tryParseJson<TmdbSearchResp>(response)?.results?.firstOrNull()
             
             val poster = getImageUrl(firstResult?.posterPath, isBanner = false)
             val banner = getImageUrl(firstResult?.backdropPath ?: firstResult?.posterPath, isBanner = true)
@@ -90,8 +94,8 @@ class TelegramChannelProvider : MainAPI() {
                 val rawTitle = textNode.text().substringBefore("\n").trim()
                 val (poster, banner) = fetchTmdbGraphics(rawTitle)
                 
-                // Salviamo i dati impacchettati in JSON (Stile Corsaro Viola) come URL target
-                val targetData = AppUtils.toJson(TelegramTarget(streamLink, poster, banner))
+                // RISOLTO: Chiamata corretta all'estensione .toJson() sull'istanza della classe
+                val targetData = TelegramTarget(streamLink, poster, banner).toJson()
                 
                 movies.add(newMovieSearchResponse(rawTitle, targetData, TvType.Movie) {
                     this.posterUrl = poster
@@ -116,7 +120,9 @@ class TelegramChannelProvider : MainAPI() {
             if (streamLink != null) {
                 val rawTitle = textNode.text().substringBefore("\n").trim()
                 val (poster, banner) = fetchTmdbGraphics(rawTitle)
-                val targetData = AppUtils.toJson(TelegramTarget(streamLink, poster, banner))
+                
+                // RISOLTO: Chiamata corretta all'estensione .toJson()
+                val targetData = TelegramTarget(streamLink, poster, banner).toJson()
 
                 searchResults.add(newMovieSearchResponse(rawTitle, targetData, TvType.Movie) {
                     this.posterUrl = poster
@@ -127,14 +133,13 @@ class TelegramChannelProvider : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse? {
-        // Decodifica immediata e pulita dell'oggetto JSON salvato
-        val target = AppUtils.tryParseJson<TelegramTarget>(url) ?: return null
+        // RISOLTO: Decodifica pulita tramite tryParseJson
+        val target = tryParseJson<TelegramTarget>(url) ?: return null
         
-        // Possiamo estrarre un titolo di emergenza o lasciarlo generico
         return newMovieLoadResponse("Film in Riproduzione", url, TvType.Movie, target.streamUrl) {
             this.posterUrl = target.poster
             this.backgroundPosterUrl = target.banner
-            this.plot = "Premi riproduci per avviare lo streaming diretto dal database."
+            this.plot = "Streaming HD autorizzato dal database locale."
         }
     }
 
@@ -144,9 +149,16 @@ class TelegramChannelProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // 'data' qui contiene direttamente il link di streaming effettivo passato da load()
+        // RISOLTO: Sostituito il costruttore deprecato con la funzione standard newExtractorLink
         callback.invoke(
-            ExtractorLink(this.name, "Streaming Diretto HD", data, "https://t.me/", Qualities.P1080.value, ExtractorLinkType.VIDEO)
+            newExtractorLink(
+                source = this.name,
+                name = "Streaming Diretto HD",
+                url = data,
+                referer = "https://t.me/",
+                quality = Qualities.P1080.value,
+                type = ExtractorLinkType.VIDEO
+            )
         )
         return true
     }
