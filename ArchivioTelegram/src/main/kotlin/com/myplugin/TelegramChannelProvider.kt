@@ -1,4 +1,4 @@
-package com.telegram.vod // Mantieni il package originale del tuo progetto
+package com.telegram.vod // Usa il package allineato al tuo sorgente
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
@@ -16,23 +16,21 @@ class TelegramChannelProvider : MainAPI() {
     override var lang = "it"
     override val hasMainPage = true
 
-    // Autenticazione sicura iniettata via BuildConfig tramite Header HTTP
-    private val tmdbApiKey = BuildConfig.TMDB_API 
+    // Autenticazione nativa e pulita tramite Header HTTP
+    private val tmdbApiKey = BuildConfig.TMDB_API
     private val authHeaders = mapOf("Authorization" to "Bearer $tmdbApiKey")
 
     private val databaseUrl = "https://gist.githubusercontent.com/ffranckj/d73933a36991f0ff223efa048937fdf1/raw/0cfb5ddca521179de3ba7e859e3099d81b6488d2/catalogo.json"
     private var linkDatabase: Map<String, String>? = null
     private val defaultCover = "https://placehold.co/500x750/222222/FFFFFF/png?text=Locandina+Non+Disponibile"
 
-    // Modelli dati per deserializzare in sicurezza le risposte di TMDB
     private data class TmdbSearchResp(@JsonProperty("results") val results: List<TmdbMovie>?)
     private data class TmdbMovie(
         @JsonProperty("id") val id: Int?,
         @JsonProperty("poster_path") val posterPath: String?,
         @JsonProperty("backdrop_path") val backdropPath: String?
     )
-    
-    // Struttura dati ponte per passare i dettagli del video alla schermata di caricamento
+
     private data class TelegramTarget(val streamUrl: String, val poster: String, val banner: String)
 
     private fun getImageUrl(path: String?, isBanner: Boolean = false): String {
@@ -56,16 +54,15 @@ class TelegramChannelProvider : MainAPI() {
     private suspend fun fetchTmdbGraphics(title: String): Pair<String, String> {
         if (tmdbApiKey.isBlank()) return Pair(defaultCover, defaultCover)
         return try {
-            // Pulizia del titolo per ottimizzare l'accuratezza dei risultati TMDB
             val cleanTitle = title.replace(Regex("(?i)(film|streaming|ita|hd|sub|download|\\[.*?\\]|\\(.*?\\)|\\d{4})"), "").trim()
             if (cleanTitle.isEmpty()) return Pair(defaultCover, defaultCover)
 
             val query = URLEncoder.encode(cleanTitle, "UTF-8")
             val url = "https://api.themoviedb.org/3/search/movie?query=$query&language=it-IT"
-            
+
             val response = app.get(url, headers = authHeaders).text
             val firstResult = tryParseJson<TmdbSearchResp>(response)?.results?.firstOrNull()
-            
+
             val poster = getImageUrl(firstResult?.posterPath, isBanner = false)
             val banner = getImageUrl(firstResult?.backdropPath ?: firstResult?.posterPath, isBanner = true)
             Pair(poster, banner)
@@ -81,20 +78,18 @@ class TelegramChannelProvider : MainAPI() {
         val nodes = document.select(".tgme_widget_message")
         val db = getDatabase()
         val movies = mutableListOf<SearchResponse>()
-        
+
         for (node in nodes) {
             val textNode = node.selectFirst(".tgme_widget_message_text") ?: continue
             val baseHref = node.selectFirst(".tgme_widget_message_date")?.attr("href") ?: continue
             val postId = extractPostId(baseHref)
-            
+
             val streamLink = db[postId]
             if (streamLink != null) {
                 val rawTitle = textNode.text().substringBefore("\n").trim()
                 val (poster, banner) = fetchTmdbGraphics(rawTitle)
-                
-                // Serializzazione nativa dei dati di navigazione
                 val targetData = TelegramTarget(streamLink, poster, banner).toJson()
-                
+
                 movies.add(newMovieSearchResponse(rawTitle, targetData, TvType.Movie) {
                     this.posterUrl = poster
                 })
@@ -109,7 +104,7 @@ class TelegramChannelProvider : MainAPI() {
         val searchResults = mutableListOf<SearchResponse>()
         val encodedQuery = URLEncoder.encode(query, "UTF-8")
         val document = app.get("https://t.me/s/archiviocinemaitaliano?q=$encodedQuery").document
-        
+
         for (node in document.select(".tgme_widget_message")) {
             val textNode = node.selectFirst(".tgme_widget_message_text") ?: continue
             val baseHref = node.selectFirst(".tgme_widget_message_date")?.attr("href") ?: continue
@@ -130,7 +125,7 @@ class TelegramChannelProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse? {
         val target = tryParseJson<TelegramTarget>(url) ?: return null
-        
+
         return newMovieLoadResponse("Film in Riproduzione", url, TvType.Movie, target.streamUrl) {
             this.posterUrl = target.poster
             this.backgroundPosterUrl = target.banner
@@ -144,13 +139,15 @@ class TelegramChannelProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // RISOLTO: Utilizzo della firma standard e nativa di newExtractorLink
+        // Implementazione nativa e testata di newExtractorLink
         callback.invoke(
             newExtractorLink(
-                this.name,
-                "Streaming Diretto HD",
-                data,
-                ExtractorLinkType.VIDEO
+                source = this.name,
+                name = "Streaming Diretto HD",
+                url = data,
+                type = ExtractorLinkType.VIDEO,
+                quality = Qualities.P1080.value,
+                headers = mapOf("Referer" to "https://t.me/")
             )
         )
         return true
