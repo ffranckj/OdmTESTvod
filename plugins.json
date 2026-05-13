@@ -1,9 +1,9 @@
 [
     {
-        "fileHash": "sha256-92e40925f556fa9fb5a06f56b3650b55814ce05d4b0880b426e489747e0f241a",
+        "fileHash": "sha256-475bc873cb2040d0f4e535246815b47b1831687d5b4c110c1cc2636c5721c690",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/ffranckj/OdmTESTvod",
-        "fileSize": 14113,
+        "fileSize": 11147,
         "status": 1,
         "language": "it",
         "authors": [
@@ -13,16 +13,16 @@
             "Movie"
         ],
         "version": -1,
-        "internalName": "odmvodprovide",
-        "description": "Sito Web: OdmVod (Cinema Italiano Scraper Nativo)",
-        "url": "https://raw.githubusercontent.com/ffranckj/OdmTESTvod/builds/odmvodprovide.cs3",
-        "name": "odmvodprovide"
+        "internalName": "ArchivioTelegram",
+        "description": "Canale Telegram: Archivio Cinema Italiano (Copertine HD via TMDB)",
+        "url": "https://raw.githubusercontent.com/ffranckj/OdmTESTvod/builds/ArchivioTelegram.cs3",
+        "name": "ArchivioTelegram"
     },
     {
-        "fileHash": "sha256-4726514154ec98848c89ffcd5553bb712ca34aa7e5828bb3ca5738bf11be4c32",
+        "fileHash": "sha256-d755fa8b15a4cda6d6fe7425ab0e0f683d17fcaabb174179f5088362b5ca621f",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/ffranckj/OdmTESTvod",
-        "fileSize": 11416,
+        "fileSize": 14114,
         "status": 1,
         "language": "it",
         "authors": [
@@ -32,9 +32,9 @@
             "Movie"
         ],
         "version": -1,
-        "internalName": "odmvodprovider",
-        "description": "Canale Telegram: Archivio Cinema Italiano (Locandine HD via TMDB)",
-        "url": "https://raw.githubusercontent.com/ffranckj/OdmTESTvod/builds/odmvodprovider.cs3",
-        "name": "odmvodprovider"
+        "internalName": "OdmVod",
+        "description": "Sito Web: OdmVod (Cinema Italiano Scraper Nativo)",
+        "url": "https://raw.githubusercontent.com/ffranckj/OdmTESTvod/builds/OdmVod.cs3",
+        "name": "OdmVod"
     }
 ]
