@@ -1,22 +1,23 @@
-package com.telegram.vod // Mantieni inalterato il package originale del tuo progetto
+package com.telegram.vod // Mantieni inalterato il package del tuo progetto
 
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.databind.DeserializationFeature
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-import com.fasterxml.jackson.module.kotlin.readValue
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
+import com.lagradost.cloudstream3.utils.AppUtils.parseJson
+import com.lagradost.cloudstream3.utils.AppUtils.toJson
+import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 
-// Definiamo i modelli dati esternamente per una perfetta compatibilità di compilazione
+// Classi dati esterne per garantire la corretta decodifica nativa di Jackson
 data class CatalogoEntry(
     @JsonProperty("streamUrl") val streamUrl: String?,
-    @JsonProperty("title") val title: String?
+    @JsonProperty("title") val title: String?,
+    @JsonProperty("poster") val poster: String? // Supporto opzionale per copertine custom
 )
 
 data class StreamTarget(
     @JsonProperty("title") val title: String,
-    @JsonProperty("streamUrl") val streamUrl: String
+    @JsonProperty("streamUrl") val streamUrl: String,
+    @JsonProperty("poster") val poster: String?
 )
 
 class TelegramChannelProvider : MainAPI() {
@@ -26,59 +27,18 @@ class TelegramChannelProvider : MainAPI() {
     override var lang = "it"
     override val hasMainPage = true
 
-    // Immagine standard in assenza di copertina
-    private val defaultCover = "https://placehold.co/500x750/222222/FFFFFF/png?text=Archivio+Cinema+Italiano"
+    // Indirizzo Raw sorgente del JSON su Gist
+    private val databaseUrl = "https://gist.githubusercontent.com/ffranckj/d73933a36991f0ff223efa048937fdf1/raw/catalogo.json"
     
-    // URL Primario del file Raw
-    private val databaseUrl = "https://gist.githubusercontent.com/ffranckj/d73933a36991f0ff223efa048937fdf1/raw/10524fce3b454e10782bb960ace377ab60de8dd5/catalogo.json"
-    
-    // URL di Fallback punta all'interfaccia Gist grezza nel caso il link raw dia 404
-    private val fallbackUrl = "https://gist.github.com/ffranckj/d73933a36991f0ff223efa048937fdf1"
-    
+    // Cache in memoria per mantenere l'accesso istantaneo ai dati
     private var catalogoCache: Map<String, CatalogoEntry>? = null
 
-    // Inizializziamo un ObjectMapper personalizzato e permissivo
-    private val mapper: ObjectMapper = jacksonObjectMapper().apply {
-        configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-        configure(DeserializationFeature.ACCEPT_EMPTY_STRING_AS_NULL_OBJECT, true)
-    }
-
-    // Funzione sicura per il fetch del JSON con controllo anti-404
+    // Fetch del catalogo con gestione sicura degli errori
     private suspend fun getCatalogo(): Map<String, CatalogoEntry> {
         catalogoCache?.let { return it }
-        
-        var jsonText = ""
-        try {
-            val response = app.get(databaseUrl)
-            if (response.code == 200 && !response.text.contains("404: Not Found")) {
-                jsonText = response.text
-            }
-        } catch (e: Exception) {
-            // Ignora e tenta il fallback
-        }
-
-        // Se l'URL primario ha fallito o ha restituito 404, tentiamo il fallback sul documento sorgente
-        if (jsonText.isBlank() || jsonText.contains("404")) {
-            try {
-                val fallbackDoc = app.get(fallbackUrl).document
-                // Estrae il testo grezzo dalla tabella del codice Gist
-                val codeBlock = fallbackDoc.selectFirst("table.highlight, .js-file-line-container")
-                if (codeBlock != null) {
-                    jsonText = codeBlock.text()
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-
-        // Se non abbiamo recuperato nulla, interrompiamo in modo sicuro
-        if (jsonText.isBlank() || jsonText.contains("404: Not Found")) {
-            return emptyMap()
-        }
-
         return try {
-            // Mappiamo il testo ripulito
-            val map: Map<String, CatalogoEntry> = mapper.readValue(jsonText)
+            val responseText = app.get(databaseUrl).text
+            val map = parseJson<Map<String, CatalogoEntry>>(responseText)
             catalogoCache = map
             map
         } catch (e: Exception) {
@@ -87,6 +47,7 @@ class TelegramChannelProvider : MainAPI() {
         }
     }
 
+    // Depurazione del titolo da formattazioni residue Markdown
     private fun pulisciTitolo(titoloGrezzo: String?): String {
         if (titoloGrezzo.isNullOrBlank()) return "Film Senza Titolo"
         return titoloGrezzo.replace("*", "")
@@ -94,6 +55,7 @@ class TelegramChannelProvider : MainAPI() {
                            .trim()
     }
 
+    // Motore di calcolo pertinenza per la ricerca testuale
     private fun calcolaPertinenza(titolo: String, query: String): Int {
         val t = titolo.lowercase()
         val q = query.lowercase()
@@ -107,7 +69,7 @@ class TelegramChannelProvider : MainAPI() {
     }
 
     // =========================================================================
-    // HOME PAGE: Popolata esclusivamente con i dati validi del JSON
+    // HOME PAGE: Genera 30 consigli casuali a ogni ricaricamento
     // =========================================================================
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val catalogo = getCatalogo()
@@ -115,29 +77,37 @@ class TelegramChannelProvider : MainAPI() {
 
         val movies = mutableListOf<SearchResponse>()
         
-        // Filtra chiavi valide e limita a 100 elementi per un caricamento grafico istantaneo
-        val vociValide = catalogo.entries.filter { !it.value.streamUrl.isNullOrBlank() }.takeLast(100)
+        // Filtra solo le entità del catalogo provviste di flussi di rete validi
+        val vociValide = catalogo.entries.filter { !it.value.streamUrl.isNullOrBlank() }
+        
+        // ROTAZIONE CASUALE: Mescola l'elenco e preleva esattamente 30 elementi
+        val selezioneCasuale = vociValide.shuffled().take(30)
 
-        for ((id, entry) in vociValide) {
+        for ((id, entry) in selezioneCasuale) {
             val streamUrl = entry.streamUrl!!.trim()
             val titoloPulito = pulisciTitolo(entry.title)
+            val customPoster = entry.poster?.trim()
             
-            // Passiamo l'oggetto serializzato
-            val targetData = mapper.writeValueAsString(StreamTarget(titoloPulito, streamUrl))
+            val target = StreamTarget(titoloPulito, streamUrl, customPoster).toJson()
 
-            movies.add(newMovieSearchResponse(titoloPulito, targetData, TvType.Movie) {
-                this.posterUrl = defaultCover
+            movies.add(newMovieSearchResponse(titoloPulito, target, TvType.Movie) {
+                // Se il JSON fornisce un poster personalizzato lo usa, 
+                // altrimenti lascia null delegando il fetch automatico a TMDB nativo.
+                if (!customPoster.isNullOrBlank()) {
+                    this.posterUrl = customPoster
+                }
             })
         }
 
         if (movies.isEmpty()) return null
-        return newHomePageResponse("Catalogo Gist", movies.reversed())
+        
+        return newHomePageResponse("Film Consigliati (Casuali)", movies)
     }
 
     private data class RisultatoOrdinato(val response: SearchResponse, val score: Int)
 
     // =========================================================================
-    // RICERCA GLOBALE SUL JSON
+    // RICERCA: Accesso globale e istantaneo all'indice completo
     // =========================================================================
     override suspend fun search(query: String): List<SearchResponse> {
         val catalogo = getCatalogo()
@@ -149,6 +119,7 @@ class TelegramChannelProvider : MainAPI() {
             val streamUrl = entry.streamUrl?.trim()
             if (!streamUrl.isNullOrBlank()) {
                 val titoloPulito = pulisciTitolo(entry.title)
+                val customPoster = entry.poster?.trim()
                 
                 val score = if (isRicercaCodice && id == q) {
                     200 
@@ -157,9 +128,11 @@ class TelegramChannelProvider : MainAPI() {
                 }
 
                 if (score > 0) {
-                    val targetData = mapper.writeValueAsString(StreamTarget(titoloPulito, streamUrl))
-                    val resp = newMovieSearchResponse(titoloPulito, targetData, TvType.Movie) {
-                        this.posterUrl = defaultCover
+                    val target = StreamTarget(titoloPulito, streamUrl, customPoster).toJson()
+                    val resp = newMovieSearchResponse(titoloPulito, target, TvType.Movie) {
+                        if (!customPoster.isNullOrBlank()) {
+                            this.posterUrl = customPoster
+                        }
                     }
                     risultati.add(RisultatoOrdinato(resp, score))
                 }
@@ -169,16 +142,17 @@ class TelegramChannelProvider : MainAPI() {
         return risultati.sortedByDescending { it.score }.map { it.response }
     }
 
+    // =========================================================================
+    // PLAYER E GESTIONE FLUSSI
+    // =========================================================================
     override suspend fun load(url: String): LoadResponse? {
-        val target = try {
-            mapper.readValue<StreamTarget>(url)
-        } catch (e: Exception) {
-            return null
-        }
+        val target = tryParseJson<StreamTarget>(url) ?: return null
         
         return newMovieLoadResponse(target.title, url, TvType.Movie, target.streamUrl) {
-            this.posterUrl = defaultCover
-            this.plot = "Flusso video nativo estratto dal JSON remoto."
+            if (!target.poster.isNullOrBlank()) {
+                this.posterUrl = target.poster
+            }
+            this.plot = "Flusso streaming on-demand agganciato dalla sorgente JSON."
         }
     }
 
