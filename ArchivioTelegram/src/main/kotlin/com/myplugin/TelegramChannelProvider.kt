@@ -43,7 +43,7 @@ class TelegramChannelProvider : MainAPI() {
     // Locandina predefinita di sicurezza se TMDB non trova corrispondenze
     private val defaultCover = "https://placehold.co/600x900/222222/FFFFFF/png?text=Archivio+Cinema+Italiano"
     
-    private val databaseUrl = "https://gist.githubusercontent.com/ffranckj/d73933a36991f0ff223efa048937fdf1/raw/catalogo.json"
+    private val databaseUrl = "https://gist.githubusercontent.com/ffranckj/d73933a36991f0ff223efa048937fdf1/raw/e4b582253a4fc40479f0263a295a05aae9b902da/gistfile2.txt"
     
     private var catalogoCache: Map<String, CatalogoEntry>? = null
 
