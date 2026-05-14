@@ -1,4 +1,4 @@
-package com.telegram.vod // Mantieni inalterato il package originale del tuo modulo
+package com.telegram.vod // Mantieni inalterato il package originale del tuo progetto
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
@@ -11,7 +11,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 
-// Modelli dati per ricevere le risposte grafiche di TMDB
+// Risposte TMDB
 data class TmdbResponse(
     @JsonProperty("results") val results: List<TmdbResult>?
 )
@@ -20,16 +20,19 @@ data class TmdbResult(
     @JsonProperty("poster_path") val posterPath: String?
 )
 
-// Modelli dati per il Catalogo JSON Gist
+// Modelli dati allineati al nuovo formato JSON (Waterfall Failover)
 data class CatalogoEntry(
-    @JsonProperty("streamUrl") val streamUrl: String?,
+    @JsonProperty("routePath") val routePath: String?,
+    @JsonProperty("servers") val servers: List<String>?,
     @JsonProperty("title") val title: String?,
     @JsonProperty("poster") val poster: String?
 )
 
+// Target di transito per passare rotte e riserve alla schermata di riproduzione
 data class StreamTarget(
     @JsonProperty("title") val title: String,
-    @JsonProperty("streamUrl") val streamUrl: String,
+    @JsonProperty("routePath") val routePath: String,
+    @JsonProperty("servers") val servers: List<String>,
     @JsonProperty("poster") val poster: String?
 )
 
@@ -40,9 +43,10 @@ class TelegramChannelProvider : MainAPI() {
     override var lang = "it"
     override val hasMainPage = true
 
-    // Locandina predefinita di sicurezza se TMDB non trova corrispondenze
+    // Segnaposto grafico standard se TMDB non restituisce locandine
     private val defaultCover = "https://placehold.co/600x900/222222/FFFFFF/png?text=Archivio+Cinema+Italiano"
     
+    // Assicurati che l'indirizzo punti sempre al link "Raw" effettivo del tuo Gist
     private val databaseUrl = "https://gist.githubusercontent.com/ffranckj/d73933a36991f0ff223efa048937fdf1/raw/e4b582253a4fc40479f0263a295a05aae9b902da/gistfile2.txt"
     
     private var catalogoCache: Map<String, CatalogoEntry>? = null
@@ -67,10 +71,8 @@ class TelegramChannelProvider : MainAPI() {
                            .trim()
     }
 
-    // Interroga TMDB usando la chiave segreta iniettata da GitHub Actions
     private suspend fun getTmdbPoster(title: String): String {
-        // Ripuliamo il titolo da diciture di parti o puntate per facilitare il match su TMDB
-        var query = title.replace(Regex("(?i)\\(.*\\)"), "") // Rimuove anni o note tra parentesi
+        var query = title.replace(Regex("(?i)\\(.*\\)"), "") // Rimuove anni o metadati
         query = query.replace(Regex("(?i)prima parte|seconda parte|parte\\s*\\d+|puntata\\s*\\d+|1x\\d+|2x\\d+|3x\\d+"), "")
         query = query.trim()
 
@@ -106,31 +108,32 @@ class TelegramChannelProvider : MainAPI() {
     }
 
     // =========================================================================
-    // HOME PAGE: 30 Film Casuali con Fetch Copertine in Parallelo
+    // HOME PAGE: Caricamento 30 pellicole casuali supportate in Failover
     // =========================================================================
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val catalogo = getCatalogo()
         if (catalogo.isEmpty()) return null
 
-        val vociValide = catalogo.entries.filter { !it.value.streamUrl.isNullOrBlank() }
+        // Seleziona unicamente gli stream in possesso di una rotta e di una catena di server
+        val vociValide = catalogo.entries.filter { !it.value.routePath.isNullOrBlank() && !it.value.servers.isNullOrEmpty() }
         val selezioneCasuale = vociValide.shuffled().take(30)
 
-        // coroutineScope + async avviano le 30 chiamate di rete a TMDB simultaneamente
         val movies = coroutineScope {
             selezioneCasuale.map { (id, entry) ->
                 async {
-                    val streamUrl = entry.streamUrl!!.trim()
+                    val routePath = entry.routePath!!.trim()
+                    val servers = entry.servers!!
                     val titoloPulito = pulisciTitolo(entry.title)
                     val customPoster = entry.poster?.trim()
                     
-                    // Se il JSON ha una copertina custom usa quella, altrimenti interroga TMDB
                     val posterFinale = if (!customPoster.isNullOrBlank()) {
                         customPoster
                     } else {
                         getTmdbPoster(titoloPulito)
                     }
 
-                    val target = StreamTarget(titoloPulito, streamUrl, posterFinale).toJson()
+                    // Impacchetta rotta e lista server per la transizione di riproduzione
+                    val target = StreamTarget(titoloPulito, routePath, servers, posterFinale).toJson()
 
                     newMovieSearchResponse(titoloPulito, target, TvType.Movie) {
                         this.posterUrl = posterFinale
@@ -145,13 +148,14 @@ class TelegramChannelProvider : MainAPI() {
 
     private data class RisultatoMatch(
         val titolo: String,
-        val streamUrl: String,
+        val routePath: String,
+        val servers: List<String>,
         val customPoster: String?,
         val score: Int
     )
 
     // =========================================================================
-    // RICERCA GLOBALE CON COPERTINE IN HD
+    // RICERCA GLOBALE INTEGRATA CON TMDB
     // =========================================================================
     override suspend fun search(query: String): List<SearchResponse> {
         val catalogo = getCatalogo()
@@ -160,8 +164,9 @@ class TelegramChannelProvider : MainAPI() {
         val isRicercaCodice = q.toIntOrNull() != null
 
         for ((id, entry) in catalogo) {
-            val streamUrl = entry.streamUrl?.trim()
-            if (!streamUrl.isNullOrBlank()) {
+            val routePath = entry.routePath?.trim()
+            val servers = entry.servers
+            if (!routePath.isNullOrBlank() && !servers.isNullOrEmpty()) {
                 val titoloPulito = pulisciTitolo(entry.title)
                 val customPoster = entry.poster?.trim()
                 
@@ -172,12 +177,11 @@ class TelegramChannelProvider : MainAPI() {
                 }
 
                 if (score > 0) {
-                    risultatiMatch.add(RisultatoMatch(titoloPulito, streamUrl, customPoster, score))
+                    risultatiMatch.add(RisultatoMatch(titoloPulito, routePath, servers, customPoster, score))
                 }
             }
         }
 
-        // Preleviamo i 40 risultati più pertinenti e risolviamo i poster in parallelo
         val topResults = risultatiMatch.sortedByDescending { it.score }.take(40)
 
         return coroutineScope {
@@ -188,7 +192,7 @@ class TelegramChannelProvider : MainAPI() {
                     } else {
                         getTmdbPoster(match.titolo)
                     }
-                    val target = StreamTarget(match.titolo, match.streamUrl, posterFinale).toJson()
+                    val target = StreamTarget(match.titolo, match.routePath, match.servers, posterFinale).toJson()
                     
                     newMovieSearchResponse(match.titolo, target, TvType.Movie) {
                         this.posterUrl = posterFinale
@@ -201,28 +205,40 @@ class TelegramChannelProvider : MainAPI() {
     override suspend fun load(url: String): LoadResponse? {
         val target = tryParseJson<StreamTarget>(url) ?: return null
         
-        return newMovieLoadResponse(target.title, url, TvType.Movie, target.streamUrl) {
+        return newMovieLoadResponse(target.title, url, TvType.Movie, url) {
             this.posterUrl = if (!target.poster.isNullOrBlank()) target.poster else defaultCover
-            this.plot = "Flusso streaming on-demand agganciato dalla sorgente JSON."
+            this.plot = "Flusso di streaming ridondante supportato da un'architettura a cascata (Waterfall) su ${target.servers.size} server indipendenti."
         }
     }
 
+    // =========================================================================
+    // GESTORE DI RETE: Esecuzione del Failover Multiplo
+    // =========================================================================
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        if (data.isBlank()) return false
+        val target = tryParseJson<StreamTarget>(data) ?: return false
+        if (target.routePath.isBlank() || target.servers.isEmpty()) return false
 
-        callback.invoke(
-            newExtractorLink(
-                source = this.name,
-                name = "Streaming Diretto HD",
-                url = data,
-                type = ExtractorLinkType.VIDEO
+        // INOLTRO A CASCATA: Invia in sequenza tutti i domini associati alla rotta.
+        // ExoPlayer aprirà il primo link; se il servizio HTTP risponde con un codice di errore
+        // dovuto all'esaurimento della banda, salterà automaticamente alla sorgente successiva.
+        target.servers.forEachIndexed { index, host ->
+            val hostPulito = host.trim().removeSuffix("/")
+            val urlCompleto = "$hostPulito${target.routePath}"
+            
+            callback.invoke(
+                newExtractorLink(
+                    source = this.name,
+                    name = "Server Cascata #${index + 1}",
+                    url = urlCompleto,
+                    type = ExtractorLinkType.VIDEO
+                )
             )
-        )
+        }
         return true
     }
 }
