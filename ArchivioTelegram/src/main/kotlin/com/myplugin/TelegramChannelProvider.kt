@@ -47,7 +47,7 @@ class TelegramChannelProvider : MainAPI() {
     private val defaultCover = "https://placehold.co/600x900/222222/FFFFFF/png?text=Archivio+Cinema+Italiano"
     
     // Assicurati che l'indirizzo punti sempre al link "Raw" effettivo del tuo Gist
-    private val databaseUrl = "https://gist.githubusercontent.com/ffranckj/d73933a36991f0ff223efa048937fdf1/raw/e4b582253a4fc40479f0263a295a05aae9b902da/gistfile2.txt"
+    private val databaseUrl = "https://gist.githubusercontent.com/ffranckj/d73933a36991f0ff223efa048937fdf1/raw/a48277f336f5094bda08a60a516acb3ce67255e1/catalogo.json"
     
     private var catalogoCache: Map<String, CatalogoEntry>? = null
 
